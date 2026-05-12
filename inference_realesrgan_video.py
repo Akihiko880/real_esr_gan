@@ -31,7 +31,7 @@ def get_video_meta_info(video_path):
     ret['width'] = video_streams[0]['width']
     ret['height'] = video_streams[0]['height']
     ret['fps'] = eval(video_streams[0]['avg_frame_rate'])
-    ret['audio'] = ffmpeg.input(video_path, hwaccel='cuda').audio if has_audio else None
+    ret['audio'] = ffmpeg.input(video_path).audio if has_audio else None
     ret['nb_frames'] = int(video_streams[0]['nb_frames'])
     return ret
 
@@ -39,49 +39,18 @@ def get_video_meta_info(video_path):
 def get_sub_video(args, num_process, process_idx):
     if num_process == 1:
         return args.input
-
     meta = get_video_meta_info(args.input)
-
-    duration = meta['nb_frames'] / meta['fps']
-    part_time = duration / num_process
-
+    duration = int(meta['nb_frames'] / meta['fps'])
+    part_time = duration // num_process
     print(f'duration: {duration}, part_time: {part_time}')
-
-    os.makedirs(
-        osp.join(args.output, f'{args.video_name}_inp_tmp_videos'),
-        exist_ok=True
-    )
-
-    out_path = osp.join(
-        args.output,
-        f'{args.video_name}_inp_tmp_videos',
-        f'{process_idx:03d}.mp4'
-    )
-
-    start_time = part_time * process_idx
-
+    os.makedirs(osp.join(args.output, f'{args.video_name}_inp_tmp_videos'), exist_ok=True)
+    out_path = osp.join(args.output, f'{args.video_name}_inp_tmp_videos', f'{process_idx:03d}.mp4')
     cmd = [
-        args.ffmpeg_bin,
-        '-y',
-        '-ss', str(start_time),
-        '-i', args.input,
+        args.ffmpeg_bin, f'-i {args.input}', '-ss', f'{part_time * process_idx}',
+        f'-to {part_time * (process_idx + 1)}' if process_idx != num_process - 1 else '', '-async 1', out_path, '-y'
     ]
-
-    # Worker cuối không cần -to
-    if process_idx != num_process - 1:
-        end_time = part_time * (process_idx + 1)
-        cmd += ['-to', str(end_time)]
-
-    cmd += [
-        '-async', '1',
-        '-c', 'copy',
-        out_path
-    ]
-
-    print("FFmpeg cmd:", cmd)
-
-    subprocess.run(cmd, check=True)
-
+    print(' '.join(cmd))
+    subprocess.call(' '.join(cmd), shell=True)
     return out_path
 
 
@@ -180,7 +149,7 @@ class Writer:
                                  audio,
                                  video_save_path,
                                  pix_fmt='yuv420p',
-                                 vcodec='h264_nvenc', cq=18,
+                                 vcodec='hevc_nvenc',
                                  loglevel='error',
                                  acodec='copy').overwrite_output().run_async(
                                      pipe_stdin=True, pipe_stdout=True, cmd=args.ffmpeg_bin))
@@ -188,7 +157,7 @@ class Writer:
             self.stream_writer = (
                 ffmpeg.input('pipe:', format='rawvideo', pix_fmt='bgr24', s=f'{out_width}x{out_height}',
                              framerate=fps).output(
-                                 video_save_path, pix_fmt='yuv420p', vcodec='h264_nvenc', cq=18,
+                                 video_save_path, pix_fmt='yuv420p', vcodec='hevc_nvenc',
                                  loglevel='error').overwrite_output().run_async(
                                      pipe_stdin=True, pipe_stdout=True, cmd=args.ffmpeg_bin))
 
@@ -318,6 +287,9 @@ def run(args):
         args.input = tmp_frames_folder
 
     num_gpus = torch.cuda.device_count()
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
     num_process = num_gpus * args.num_process_per_gpu
     if num_process == 1:
         inference_video(args, video_save_path)
