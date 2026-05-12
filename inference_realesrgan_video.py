@@ -39,18 +39,49 @@ def get_video_meta_info(video_path):
 def get_sub_video(args, num_process, process_idx):
     if num_process == 1:
         return args.input
+
     meta = get_video_meta_info(args.input)
-    duration = int(meta['nb_frames'] / meta['fps'])
-    part_time = duration // num_process
+
+    duration = meta['nb_frames'] / meta['fps']
+    part_time = duration / num_process
+
     print(f'duration: {duration}, part_time: {part_time}')
-    os.makedirs(osp.join(args.output, f'{args.video_name}_inp_tmp_videos'), exist_ok=True)
-    out_path = osp.join(args.output, f'{args.video_name}_inp_tmp_videos', f'{process_idx:03d}.mp4')
+
+    os.makedirs(
+        osp.join(args.output, f'{args.video_name}_inp_tmp_videos'),
+        exist_ok=True
+    )
+
+    out_path = osp.join(
+        args.output,
+        f'{args.video_name}_inp_tmp_videos',
+        f'{process_idx:03d}.mp4'
+    )
+
+    start_time = part_time * process_idx
+
     cmd = [
-        args.ffmpeg_bin, f'-i {args.input}', '-ss', f'{part_time * process_idx}',
-        f'-to {part_time * (process_idx + 1)}' if process_idx != num_process - 1 else '', '-async 1', out_path, '-y'
+        args.ffmpeg_bin,
+        '-y',
+        '-ss', str(start_time),
+        '-i', args.input,
     ]
-    print(' '.join(cmd))
-    subprocess.call(' '.join(cmd), shell=True)
+
+    # Worker cuối không cần -to
+    if process_idx != num_process - 1:
+        end_time = part_time * (process_idx + 1)
+        cmd += ['-to', str(end_time)]
+
+    cmd += [
+        '-async', '1',
+        '-c', 'copy',
+        out_path
+    ]
+
+    print("FFmpeg cmd:", cmd)
+
+    subprocess.run(cmd, check=True)
+
     return out_path
 
 
