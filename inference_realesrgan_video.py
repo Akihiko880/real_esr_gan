@@ -388,7 +388,7 @@ def main():
     parser.add_argument('--fps', type=float, default=None, help='FPS of the output video')
     parser.add_argument('--ffmpeg_bin', type=str, default='ffmpeg', help='The path to ffmpeg')
     parser.add_argument('--extract_frame_first', action='store_true')
-    parser.add_argument('--num_process_per_gpu', type=int, default=1)
+    parser.add_argument('--num_process_per_gpu', type=int, default=2)
 
     parser.add_argument(
         '--alpha_upsampler',
